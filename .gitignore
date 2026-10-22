@@ -1,4 +1,4 @@
-/bin/
+
 /obj/
 # Generated output is ignored except the checked-in, self-contained Windows package.
 /portable/*

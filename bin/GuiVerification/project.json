@@ -1,0 +1,24 @@
+{
+  "SchemaVersion": 1,
+  "Name": "GuiVerification",
+  "SampleRate": 44100,
+  "Tracks": [
+    {
+      "Id": "8e77b156-7656-4c61-819a-93dde015b8df",
+      "Name": "\u30AA\u30FC\u30C7\u30A3\u30AA 1",
+      "Gain": 1,
+      "Pan": 0,
+      "Muted": false,
+      "Clips": [
+        {
+          "Id": "0a4eb9d4-6d1a-4a6b-8897-387cf924c24d",
+          "Name": "Drum Machine",
+          "File": "Audio\\8ba0c31d528648ca9654409b9fde6f92_Drum Machine.wav",
+          "StartSeconds": 0.6199999999999996,
+          "SourceOffsetSeconds": 0,
+          "DurationSeconds": 21.333333333333332
+        }
+      ]
+    }
+  ]
+}

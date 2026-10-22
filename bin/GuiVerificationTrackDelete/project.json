@@ -1,0 +1,15 @@
+{
+  "SchemaVersion": 1,
+  "Name": "GuiVerificationTrackDelete",
+  "SampleRate": 44100,
+  "Tracks": [
+    {
+      "Id": "ed30ea1f-924e-466d-a734-c040bac86526",
+      "Name": "\u30AA\u30FC\u30C7\u30A3\u30AA 1",
+      "Gain": 1,
+      "Pan": 0,
+      "Muted": false,
+      "Clips": []
+    }
+  ]
+}
