@@ -7,5 +7,9 @@
     <Nullable>enable</Nullable>
     <AssemblyName>Tubase</AssemblyName>
     <RootNamespace>Tubase</RootNamespace>
+    <ApplicationIcon>Assets\Tubase.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Assets\Tubase.ico" />
+  </ItemGroup>
 </Project>

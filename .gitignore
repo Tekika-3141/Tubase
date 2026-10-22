@@ -1,4 +1,8 @@
-bin/
-obj/
+/bin/
+/obj/
+# Generated output is ignored except the checked-in, self-contained Windows package.
+/portable/*
+!/portable/win-x64/
+!/portable/win-x64/**
 *.user
 *.suo

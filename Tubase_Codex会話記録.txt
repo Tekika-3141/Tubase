@@ -436,3 +436,135 @@ Codex（端末: TekikaPC／AI: Codex）
 - READMEおよび開発計画を更新。
 
 確認結果: `dotnet build Tubase.csproj -c Release` 成功、警告0件・エラー0件。実画面の操作と実オーディオ機器からの再生はこの環境では未確認です。MIDI／ピアノロール、録音、エフェクト、VST3、ASIO/WASAPI設定、オートメーションは引き続き未実装です。
+
+ユーザー（端末: TekikaPC）
+保存処理のUnauthorizedAccessExceptionを調査・修正し、WAV編集、保存、Undo/Redo、復旧スナップショットなどを検証するよう依頼。画面を日本語化し、Cubase風のTubase独自アイコンを追加する希望も伝達。
+
+Codex（端末: TekikaPC／AI: Codex）
+作業開始時の状態はmainブランチ、未コミット変更なしでした。隔離環境の `%TEMP%` で再現調査したところ、保存先ディレクトリと一時ファイルは存在し、ACL上も書き込み可能でしたが、同じ場所で `File.Move` によるリネームだけが `UnauthorizedAccessException` になりました。ファイルロックやパス衝突ではなく、この実行環境のサンドボックスがリネーム操作を拒否することが原因です。同じ場所で新規作成、直接書き込み、`File.Copy`が成功することも確認しました。
+
+変更内容:
+- プロジェクト保存を、一時JSON作成・事前検証、既存project.jsonを`.bak`へコピー、新JSONをコピー、保存後の再読込検証に変更。失敗時はバックアップからロールバックし、保存先と編集データを残した一時ファイルのパスを例外に記録。
+- 既存manifestが不正なら有効な`.bak`を上書きしないよう保存を中止。ロード時にmanifestが壊れていればバックアップを読み込み。
+- 2分ごとの復旧スナップショットもバックアップ付き保存へ変更し、破損時の復旧コピー読込を追加。
+- 選択クリップをDeleteキーで削除。クリップ移動・削除、トラック削除のUndo/Redoで音声素材参照が維持されるよう履歴処理を共有化。
+- WAV波形ピーク、スナップON/OFF、Ctrl+S/Z/YとSpaceのショートカットをテスト対象に追加。
+- UIを日本語化し、TubaseオリジナルのT字＋波形マークを作成。`Assets/Tubase.svg`をベクター原稿、`Assets/Tubase.ico`を複数解像度のEXE／ウィンドウアイコンとして設定。
+- READMEと開発計画を更新。
+
+テスト結果:
+- Releaseビルド成功、警告0件、エラー0件。
+- `dotnet .\\bin\\Release\\net10.0-windows\\Tubase.dll --self-test` 全項目成功 (`RESULT: PASS`)。
+- PCM16／WAVE_FORMAT_EXTENSIBLE読込、波形計算、複数WAVインポート、保存／再読込、バックアップと破損回復、保存失敗時の例外と一時JSON保持、Undo/Redo、復旧スナップショット読戻し、ミックス、WAV書出しを確認。
+- GUIアプリを起動し、日本語表示を確認。実WAVをGUIで開いた波形の目視、GUIからの保存・再オープン、オーディオ機器での実音再生は未確認。
+Codex（端末: TekikaPC／AI: Codex）
+最終確認を補足します。標準のbin/Release出力先はTubase.exeを別プロセスが使用中でロックしており、標準パスへの最終ビルドは失敗しました。このため、同じRelease構成をbin/Verifyへ出力してビルドし、同出力のTubase.dllで自己テストを実行しました。Releaseビルドは警告0件・エラー0件、自己テストはRESULT: PASSです。
+
+確認したテスト項目はWAV読込・波形ピーク計算、Snap有効／無効、Ctrl+S/Z/Y・Spaceのコマンド割当、Undo履歴上限、クリップ移動・削除とトラック削除のUndo/Redo、音声素材参照維持、保存／再読込、保存失敗時の一時データ保持、復旧スナップショット往復と破損バックアップ復元、ミックスとWAV書出しです。
+
+GUIは起動し日本語メニューをアクセシビリティ情報で確認しました。実WAVのイベント波形を画面で確認すること、GUI上で保存して開き直すこと、オーディオ機器からの再生は実施していません。
+
+ユーザー（端末: TekikaPC）
+現在の実装を維持しながら、標準Release出力を更新し、実WAVで日本語UI・波形表示・Snap・クリップ削除・Undo/Redo・Ctrl+S・再起動後の再読込・Space再生を実機検証するよう依頼。起動中プロセスを強制終了しないこと、復旧スナップショットと実音の検証可否を明確に報告することを指定。
+
+Codex（端末: TekikaPC／AI: Codex）
+作業開始時はmainブランチでした。前回までの未コミット変更（Audio/ProjectModel.cs、Audio/TubaseSmokeTests.cs、MainWindow.xaml、MainWindow.xaml.cs、README.md、Tubase.csproj、Assets、EditorInput.cs、GenerateTubaseIcon.ps1、開発計画、会話記録）を保持して作業しました。
+
+標準Releaseの最初のビルドはTubase.exeが使用中で失敗しました。通常のプロセス一覧では所有者が表示されませんでしたが、GUIウィンドウを確認すると前回検証で起動したTubase自身が空の状態で残っていました。Alt+F4で通常終了し、強制終了せずに標準`bin/Release/net10.0-windows`へReleaseビルドを完了しました。最終ビルドは警告0件・エラー0件、Tubase.exe更新時刻は2026-10-22 22:31です。`bin/Verify`とは別の標準Release出力を使用しています。
+
+実WAV（`C:\Users\sota6\Downloads\Drum Machine.wav`）をGUIで読み込んだところ、波形描画が`Index was outside the bounds of the array.`で停止しました。デコードとWavImportServiceの素材取込自体は成功していました。描画幅は小数値、ピーク配列は整数長で、`x < waveWidth`のループがピーク配列の末尾を越えることが原因でした。ループ上限を`peaks.Length`に変更しました。再読込で続いて発生したWPFの「指定された要素は、既に別の要素の論理子です」も調べ、同じCanvasをBorderとGridの双方へ追加していたため、重複するBorder.Child割当を取り除きました。
+
+修正後に確認したこと:
+- Release版起動、日本語UIと日本語操作案内。
+- Drum Machine.wavの読込、クリップ配置、波形描画。
+- Snap ON/OFF。Snap ONでクリップを移動すると0.25秒単位に吸着（今回0.5秒位置）、OFFでは非グリッド位置（今回約0.62秒）へ移動。
+- Deleteでクリップ削除、Ctrl+Zで復元、Ctrl+Yで削除、再度Ctrl+Zで復元。
+- Ctrl+S保存、アプリ終了・再起動後のproject.json読み込み。トラック、クリップ、プロジェクト内Audio素材参照、波形表示が維持されました。
+- 2分タイマーによる`Autosaves/recovery.json`生成（2026-10-22 22:35:42）と、次回読込時に表示された復旧確認ダイアログで「はい」を選択して波形・クリップを復元。
+- Spaceで再生アイコン、再生位置マーカー、ステータスが変化し、もう一度Spaceで停止・先頭復帰。アプリは「Windowsオーディオで再生中」と表示しましたが、物理オーディオ機器からの実音を人が聴いて確認できていません。
+- Releaseスモークテストは`TubaseSmokeTests.Run()`が`True`を返しました。既存テストはWAV形式、保存／バックアップ、Undo/Redo、復旧スナップショットの読み戻しなどを含みます。
+
+変更ファイルは`MainWindow.xaml.cs`（波形配列範囲とWPF要素親子関係の修正）、`README.md`（現行検証結果）、`Tubase_開発計画.md`（完了項目と次の優先事項）、本会話記録です。GUI検証用のプロジェクト／WAVコピーは無視対象の`bin/GuiVerification`内に残し、ユーザーデータと混ぜたり、既存バックアップを削除したりしていません。
+
+未検証項目: 実音が物理出力機器から聞こえること、GUIでのトラック削除操作。次の優先事項は実機で実音を聴くことと、トラック削除のGUI確認です。
+
+Codex（端末: TekikaPC／AI: Codex）
+README、開発計画、会話記録を今回のRelease・GUI検証結果に合わせて更新しました。変更後に`git diff --check`を再確認し、未コミット差分を報告します。
+
+ユーザー（端末: TekikaPC）
+実WAVを使ったGUIでトラック削除、Ctrl+Z/Ctrl+Y、Ctrl+S後の再読込、Windows実音出力を確認するよう依頼。作業ツリーと既存復旧データは保持する指定。Cubase UI/操作感は動画などを参考に完全準拠させる要望も追加。ただし今回の依頼本文にある大規模UI再設計禁止の範囲内で、参考調査のみ行う。
+
+Codex（端末: TekikaPC／AI: Codex）
+mainブランチで開始。前回からの未コミット変更を保持し、`git diff --check`は開始時点で問題なし。Tubase.exeの起動プロセスは開始時に存在せず、標準Release版をそのまま使用。標準Release出力は2026-10-22 22:31更新、今回ソースは変更していないため再ビルドなし。
+
+既存の`bin/GuiVerification`と`Autosaves/recovery.json`、`.bak`を残したまま、`bin/GuiVerificationTrackDelete`に独立した実WAV検証プロジェクトを作成。WAVを読み込んで波形を表示し、トラックの×ボタンによる削除、Ctrl+Zでのトラック・クリップ復元、Ctrl+Yでの削除再適用、Ctrl+Sで保存成功表示をGUI確認。保存直後の`project.json`はトラック1件（既定の空トラック）、クリップ0件で、WAV素材ファイルはプロジェクト内に残っていた。
+
+検証用project.jsonをファイル選択ダイアログから選び直すGUI操作は完了できず、保存後の再読込状態は未検証。Deleteキーでクリップ削除を行う際も選択が成立しなかったため、クリップ削除とトラック削除の連続した履歴分離は今回未検証。ソース修正は行っていない。
+
+Space再生中はアプリの状態表示が「Windowsオーディオで再生中」となり、再生位置が00:00.750から約00:01.3へ進行。Spaceで停止すると再生アイコンへ戻り、00:00.000へ復帰した。物理機器からの実音を聴取できず、音切れも含めて実音検証は未検証。
+
+Cubaseの参考調査としてSteinberg公式Cubase Pro 15 Project Windowマニュアルと公式CubaseチャンネルのProject Window紹介動画を確認した。参考資料では左のInspector/Left Zone、中央のTrack List・Event Display・Ruler・Toolbar、下部Zoneなどの領域構成が示される。今回の範囲は大規模UI再設計禁止のためTubaseのUI変更は行わず、完全準拠は次の別作業に回す。
+
+今回はコード修正・ビルド・自動テストを実施していない。既存検証プロジェクトおよび復旧データは削除していない。次の優先項目は保存済み削除状態のGUI再読込確認と、クリップ削除・トラック削除を混在させたUndo/Redo確認。
+
+ユーザー（端末: TekikaPC）
+Cubase Pro 15のProject Windowを参考に、Tubaseの左InspectorとProject Zoneを第1段階で整理するよう依頼。既存の波形、クリップ、Snap、Undo/Redo、保存、再生を維持し、ReleaseビルドとGUIでのWAV・選択・サイズ変更確認を指定。
+
+Codex（端末: TekikaPC／AI: Codex）
+開始時ブランチはmain。Audio/ProjectModel.cs、Audio/TubaseSmokeTests.cs、MainWindow.xaml、MainWindow.xaml.cs、README.md、Tubase.csproj、Assets/、EditorInput.cs、GenerateTubaseIcon.ps1、開発計画、会話記録にあった既存変更を保持。`git diff --check`は開始時点で問題なし。
+
+Steinberg公式Cubase Pro 15 Project Window資料を確認。Left Zone/Inspector、Project ZoneのTrack List・Event Display・Ruler・Toolbarという領域区分を参考に、最小限のUI整理を実施。
+
+実装:
+- MainWindow.xamlの中央領域を左右カラムに分け、InspectorとProject Zoneを配置。間のGridSplitterで幅を調整できるようにし、最小ウィンドウ幅を860、高さを560に設定。
+- Inspectorに選択中トラックの名前・種類・クリップ数、選択イベントの名前・開始位置・長さ・素材読込状態を表示。未実装機能の設定欄は追加していない。既存の音量・パン操作はトラック欄に維持。
+- MainWindow.xaml.csでトラック／イベント選択時のInspector同期とトラック欄の選択表示を追加。ルーラー／イベント背景に0.25秒補助線を加え、1秒ごとのラベル・強調線を維持。
+- README、開発計画を更新。
+
+検証:
+- 標準Releaseビルド成功、警告0・エラー0。`bin/Release/net10.0-windows/Tubase.exe`の更新時刻は2026-10-22 23:31:28。
+- Release DLLの`--self-test`を実行し終了コード0。
+- GUIでRelease版を起動。実WAV `Downloads/Drum Machine.wav`の波形表示、クリップ選択でInspectorに名称・開始0.000秒・長さ21.333秒・素材状態が表示されることを確認。
+- 2本目のトラック追加でInspectorが「オーディオ 2」に更新、1本目の選択で「オーディオ 1」に戻ることを確認。
+- Snap ONで移動開始位置0.000から0.500秒、Snap OFFで0.850秒。Ctrl+Zで0.500、Ctrl+Yで0.850に戻ることをInspectorとイベント表示で確認。Ctrl+Sは保存成功表示。
+- GridSplitterをドラッグしInspector幅を約230から約282へ変更。Windowsの左右スナップで画面幅を狭めた状態でもInspector、トラック欄、波形欄が見え、崩れや例外なし。
+- 高DPI倍率、多画面、大量トラックでの負荷、Inspector内からの音量・パン編集は未検証。
+
+今回の実装変更はMainWindow.xaml、MainWindow.xaml.cs。文書変更はREADME.md、Tubase_開発計画.md、本会話記録。既存の変更・検証プロジェクト・復旧データは削除していない。次の優先項目は既存音量・パンコントロールをInspectorへ統合し、Undo/Redoと保存を含むGUI検証を行うこと。
+
+ユーザー（端末: TekikaPC）
+左Inspectorへ既存トラックの音量・パン操作を集約し、値の選択追従、Undo/Redo、保存・再読込を確認するよう依頼。あわせてCubase Pro 15に近い見た目、起動時に隠れてしまう最小化・最大化・閉じるボタンと上部メニューの表示改善を依頼。添付画像はメニューとウィンドウ操作を近接配置する参考。
+
+Codex（端末: TekikaPC／AI: Codex）
+開始ブランチはmain。開始時から存在したAudio/ProjectModel.cs、Audio/TubaseSmokeTests.cs、MainWindow.xaml、MainWindow.xaml.cs、README.md、Tubase.csproj、Assets/、EditorInput.cs、GenerateTubaseIcon.ps1、開発計画・会話記録の未コミット変更を保持。
+
+実装:
+- Gain／Panは既にAudioTrackモデル、JSON保存、ミキサーに実装されていた。保存形式を変更せず、Inspectorに音量0〜200%と左右パン（中央表示あり）のスライダーを追加し、トラック欄の操作スライダーを現在値表示に置き換えた。
+- 選択トラックにInspector値を同期。選択時のTrack.Idが引き続き選択中のIDと一致する場合だけ更新する。マウス操作／スライダーのキー入力開始時に従来ProjectEditHistoryへ変更前状態を登録する。トラック欄の値表示もInspector編集に追従。
+- ウィンドウ起動時は既存1440×900が作業領域を越え、標準タイトルバーが画面外へ配置されていた。初期値を1280×760に変更し、Windows標準タイトルバー操作ボタンと日本語のファイル・編集・表示・ヘルプメニューが起動直後から画面内に表示されるようにした。メニューは標準タイトルバー直下に配置。
+- 自動テストへ選択トラックのGain／Pan Undo/Redo、他トラック値の独立性、保存・再読込の確認を追加。
+
+検証:
+- 最終Releaseビルド成功（警告0、エラー0）。`--self-test`全件成功: WAV読込・波形ピーク、Snap ON/OFF、ショートカット、Gain／Pan Undo/Redo・トラック独立・保存再読込、クリップ移動／削除・トラック削除履歴、復旧データ、保存失敗時の編集保持、ミックス・WAV出力・バックアップ復元。
+- Release GUIを起動し、初期サイズ1280×760で最小化／最大化／閉じるとメニューが見えることをスクリーンショットとアクセシビリティツリーで確認。
+- GUIで2本目のトラックのInspectorを操作し、音量50%、パン右70%へ変更。1本目の音量100%／中央の表示に影響がないことを確認。音量スライダーをマウスドラッグしてCtrl+Zで100%に戻り、Ctrl+Yで144%に再適用されることを確認。
+- 実プロジェクトをGUIから保存して再読込する操作は未実施。Gain／Panの保存再読込は自己テストで確認。実音の音量・定位は未検証。
+- テスト拡張後の最初の実行では、Gain／Panの保存値を変更したため旧ミキサー期待値およびバックアップ名のテスト前提と不一致になった。テストフィクスチャ内でミキサー用値を戻し、保存バックアップを上書きしないよう修正後、再実行で全件PASS。
+
+ユーザー（端末: TekikaPC）
+Project Window右ゾーンの表示・非表示切替と幅調整を追加し、既存UI・編集状態を保つよう依頼。Releaseビルド、開閉と狭幅レイアウトの確認、README・開発計画・会話記録の更新を指定。さらに、GitHubから別端末へpullした後すぐにTubase.exeを使えるよう、リポジトリ階層と.gitignoreの調整を依頼。
+
+Codex（端末: TekikaPC／AI: Codex）
+開始ブランチはmain。Audio/ProjectModel.cs、Audio/TubaseSmokeTests.cs、MainWindow.xaml、MainWindow.xaml.cs、README.md、Tubase.csproj、Assets/、EditorInput.cs、GenerateTubaseIcon.ps1、開発計画・会話記録にあった既存の未コミット変更を保持。既存の変更を破棄・上書きせず作業した。
+
+実装:
+- ツールバーに「右ゾーン」トグルを追加し、Project Zone右側に独立領域を設置。境界のGridSplitterで幅を変更でき、開閉時はInspectorや選択状態、タイムラインデータを操作しない。
+- ウィンドウ幅に応じ右ゾーン幅を再調整し、Project Zoneの最小幅を確保する。領域内容は案内表示のみで、未実装機能のボタンは追加していない。
+- `Publish-Windows.ps1`を追加し、Windows x64向け自己完結型Releaseを`portable/win-x64/`へ生成する構成にした。`.gitignore`はbin/objおよび他のportable出力を無視し、配布パッケージだけ追跡対象にする。
+- READMEに開閉方法、未実装内容、portable exeの起動方法と再生成方法を記載。
+
+検証:
+- Releaseビルド結果、portableパッケージ、配布exeの起動結果を次項に追記する。
+- GUIで既定の閉状態、複数回の開閉、幅ドラッグ、開閉前後のトラック選択・Inspector値・Snap・再生位置の維持を確認。Windowsの左右スナップで狭幅にした際、Inspector・Project Zone・右ゾーンが表示され、Project Zoneに約360pxを確保することを確認。
+- 今回のGUI開閉確認ではプロジェクト保存・再読込を行っていない。実音出力も対象外。右ゾーンとUndo/Redo履歴の相互作用は状態を変更しない実装で、自己テストの追加は行っていない。
+- GitHubへのcommit/pushはしていないため、別端末で使うにはこの作業を含むコミットがGitHubへpushされた後にpullする必要がある。
