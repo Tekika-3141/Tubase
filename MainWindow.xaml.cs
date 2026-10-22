@@ -34,6 +34,7 @@ public partial class MainWindow : Window
     private Guid? _inspectorEditTrackId;
     private double _rightZoneWidth = 270;
     private bool _rightZoneVisible;
+    private string? _projectFilePath;
 
     private string CaptureState() => JsonSerializer.Serialize(_project);
     private void RecordUndo()
@@ -187,7 +188,9 @@ public partial class MainWindow : Window
         var dialog = new OpenFolderDialog { Title = "Tubaseプロジェクトの保存先フォルダーを選択" };
         if (dialog.ShowDialog() != true) return;
         var directory = dialog.FolderName;
-        var manifest = ProjectStore.ManifestPath(directory);
+        var manifest = File.Exists(ProjectStore.TubasePath(directory))
+            ? ProjectStore.TubasePath(directory)
+            : ProjectStore.ManifestPath(directory);
         if (File.Exists(manifest))
         {
             var answer = MessageBox.Show("このフォルダーにはTubaseプロジェクトがあります。開きますか？", "Tubase",
@@ -204,6 +207,7 @@ public partial class MainWindow : Window
         _player.Stop();
         _history.Clear(); UpdateHistoryButtons();
         _projectDirectory = directory;
+        _projectFilePath = ProjectStore.TubasePath(directory);
         _project = new ProjectDocument { Name = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar)) };
         _assets.Clear();
         _playhead = 0;
@@ -219,7 +223,7 @@ public partial class MainWindow : Window
         var dialog = new OpenFileDialog
         {
             Title = "Tubaseプロジェクトを開く",
-            Filter = "Tubaseプロジェクト (project.json)|project.json|JSONファイル (*.json)|*.json",
+            Filter = "Tubaseプロジェクト (*.tubase)|*.tubase|JSONプロジェクト (*.json)|*.json|すべての対応ファイル (*.*)|*.tubase;*.json",
             CheckFileExists = true
         };
         if (dialog.ShowDialog() == true) LoadProject(dialog.FileName);
@@ -250,6 +254,7 @@ public partial class MainWindow : Window
             }
             _project = loaded;
             _projectDirectory = directory;
+            _projectFilePath = manifest;
             _assets.Clear();
             foreach (var pair in assets) _assets[pair.Key] = pair.Value;
             _selectedTrack = Math.Clamp(_selectedTrack, 0, Math.Max(0, _project.Tracks.Count - 1));
@@ -263,16 +268,46 @@ public partial class MainWindow : Window
 
     private void SaveProject_Click(object sender, RoutedEventArgs e)
     {
-        if (_projectDirectory is null) { NewProject_Click(sender, e); return; }
+        if (_projectDirectory is null) { SaveProjectAs_Click(sender, e); return; }
         SaveCurrentProject();
+    }
+
+    private void SaveProjectAs_Click(object sender, RoutedEventArgs e)
+    {
+        var initialDirectory = _projectDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        var dialog = new SaveFileDialog
+        {
+            Title = "Tubaseプロジェクトを保存",
+            Filter = "Tubaseプロジェクト (*.tubase)|*.tubase|JSONプロジェクト (*.json)|*.json",
+            DefaultExt = ".tubase",
+            AddExtension = true,
+            FileName = _projectFilePath is null ? "project.tubase" : Path.GetFileName(_projectFilePath),
+            InitialDirectory = Directory.Exists(initialDirectory) ? initialDirectory : null,
+            OverwritePrompt = true
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            var path = dialog.FileName;
+            if (string.IsNullOrWhiteSpace(Path.GetExtension(path)))
+                path += ".tubase";
+            _projectDirectory = Path.GetDirectoryName(Path.GetFullPath(path))!;
+            _projectFilePath = path;
+            SaveCurrentProject();
+        }
+        catch (Exception ex) { ShowError("プロジェクトを保存できませんでした", ex); }
     }
 
     private void SaveCurrentProject()
     {
-        if (_projectDirectory is null) return;
+        if (_projectDirectory is null || _projectFilePath is null) return;
         try
         {
-            ProjectStore.Save(_project, _projectDirectory);
+            if (string.Equals(Path.GetExtension(_projectFilePath), ".tubase", StringComparison.OrdinalIgnoreCase))
+                ProjectStore.SaveTubase(_project, _projectFilePath);
+            else
+                ProjectStore.SaveJson(_project, _projectFilePath);
             var recovery = Path.Combine(_projectDirectory, "Autosaves", "recovery.json");
             if (File.Exists(recovery)) File.Delete(recovery);
             ProjectText.Text = _project.Name;

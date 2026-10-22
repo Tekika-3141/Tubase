@@ -14,7 +14,7 @@
             <Menu Background="Transparent" Foreground="#E3E5E8" VerticalAlignment="Center">
               <MenuItem Header="ファイル">
                 <MenuItem Header="新規プロジェクト" Click="NewProject_Click"/><MenuItem Header="プロジェクトを開く" Click="OpenProject_Click"/>
-                <Separator/><MenuItem Header="保存" InputGestureText="Ctrl+S" Click="SaveProject_Click"/>
+              <Separator/><MenuItem Header="保存" InputGestureText="Ctrl+S" Click="SaveProject_Click"/><MenuItem Header="名前を付けて保存" Click="SaveProjectAs_Click"/>
                 <Separator/><MenuItem Header="WAVを読み込む" Click="ImportWav_Click"/><MenuItem Header="WAVを書き出す" Click="ExportWav_Click"/>
               </MenuItem>
               <MenuItem Header="編集"><MenuItem Header="元に戻す" InputGestureText="Ctrl+Z" Click="Undo_Click"/><MenuItem Header="やり直す" InputGestureText="Ctrl+Y" Click="Redo_Click"/></MenuItem>
@@ -25,7 +25,7 @@
           <TextBlock x:Name="ProjectText" Grid.Column="1" Text="プロジェクトなし" Foreground="#A6ABB4" HorizontalAlignment="Right" Margin="0,0,14,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
         </Grid>
         <WrapPanel DockPanel.Dock="Bottom" Margin="6,3" VerticalAlignment="Center">
-          <Button Content="新規" Click="NewProject_Click"/><Button Content="開く" Click="OpenProject_Click"/><Button Content="保存" Click="SaveProject_Click"/>
+          <Button Content="新規" Click="NewProject_Click"/><Button Content="開く" Click="OpenProject_Click"/><Button Content="保存" Click="SaveProject_Click"/><Button Content="別名保存" Click="SaveProjectAs_Click"/>
           <Separator Width="1" Margin="8,2" Background="#555A64"/>
           <Button Content="＋ トラック" Click="AddTrack_Click"/><Button Content="WAV読込" Click="ImportWav_Click"/><Button Content="WAV書出" Click="ExportWav_Click"/>
           <Separator Width="1" Margin="8,2" Background="#555A64"/>

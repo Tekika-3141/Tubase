@@ -51,13 +51,26 @@ public static class ProjectStore
     public static string ManifestPath(string projectDirectory) =>
         Path.Combine(projectDirectory, "project.json");
 
+    public static string TubasePath(string projectDirectory) =>
+        Path.Combine(projectDirectory, "project.tubase");
+
     public static void Save(ProjectDocument project, string directory)
+        => SaveToPath(project, ManifestPath(directory));
+
+    public static void SaveJson(ProjectDocument project, string filePath)
+        => SaveToPath(project, filePath);
+
+    public static void SaveTubase(ProjectDocument project, string filePath)
+        => SaveToPath(project, filePath);
+
+    private static void SaveToPath(ProjectDocument project, string path)
     {
+        var directory = Path.GetDirectoryName(Path.GetFullPath(path))
+                        ?? throw new IOException($"Project path has no parent directory: '{path}'.");
         Directory.CreateDirectory(directory);
         Directory.CreateDirectory(Path.Combine(directory, "Audio"));
         Directory.CreateDirectory(Path.Combine(directory, "Peaks"));
         Directory.CreateDirectory(Path.Combine(directory, "Autosaves"));
-        var path = ManifestPath(directory);
         var temp = path + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(project, JsonOptions));
         // Read the prepared file before touching the last good project copy.

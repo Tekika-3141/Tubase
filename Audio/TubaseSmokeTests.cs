@@ -88,6 +88,17 @@ public static class TubaseSmokeTests
             Require(loaded.Tracks[0].Clips[0].StartSeconds == 0.25, "Clip timeline position persistence");
             lines.Add("PASS two-track project save/load");
 
+            var tubasePath = ProjectStore.TubasePath(root);
+            ProjectStore.SaveTubase(loaded, tubasePath);
+            using (var tubaseJson = JsonDocument.Parse(File.ReadAllText(tubasePath)))
+                Require(tubaseJson.RootElement.GetProperty("SchemaVersion").GetInt32() == 1,
+                    "Tubase file contains valid JSON");
+            var tubaseLoaded = ProjectStore.Load(tubasePath);
+            Require(tubaseLoaded.Tracks.Count == loaded.Tracks.Count
+                    && tubaseLoaded.Tracks[0].Clips[0].StartSeconds == loaded.Tracks[0].Clips[0].StartSeconds,
+                "Tubase save/load preserves tracks and clip position");
+            lines.Add("PASS .tubase JSON save/load and legacy JSON compatibility");
+
             var history = new ProjectEditHistory();
             history.Record(JsonSerializer.Serialize(loaded));
             loaded.Tracks[0].Gain = 0.75f;

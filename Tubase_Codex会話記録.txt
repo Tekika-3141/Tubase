@@ -568,3 +568,47 @@ Codex（端末: TekikaPC／AI: Codex）
 - GUIで既定の閉状態、複数回の開閉、幅ドラッグ、開閉前後のトラック選択・Inspector値・Snap・再生位置の維持を確認。Windowsの左右スナップで狭幅にした際、Inspector・Project Zone・右ゾーンが表示され、Project Zoneに約360pxを確保することを確認。
 - 今回のGUI開閉確認ではプロジェクト保存・再読込を行っていない。実音出力も対象外。右ゾーンとUndo/Redo履歴の相互作用は状態を変更しない実装で、自己テストの追加は行っていない。
 - GitHubへのcommit/pushはしていないため、別端末で使うにはこの作業を含むコミットがGitHubへpushされた後にpullする必要がある。
+
+追加検証（2026-10-23、端末: TekikaPC）:
+- `dotnet build .\Tubase.csproj -c Release` は警告0・エラー0で成功。
+- `dotnet .\bin\Release\net10.0-windows\Tubase.dll --self-test` は終了コード0で成功。
+- `.Publish-Windows.ps1` を実行し、`portable\win-x64\Tubase.exe`を再生成した。portable版を起動してメインウィンドウのタイトル表示を確認し、プロセスを正常終了した。
+- `git diff --check` は成功。publishで更新された追跡済みportableバイナリは保持している。
+- 今回の再検証ではGUIからの保存・再読込、実音出力、右ゾーン操作の再実施は行っていない。右ゾーンのトグル、幅ドラッグ、狭幅レイアウト、状態維持は既存のGUI確認記録で確認済み。
+
+ユーザー（端末: TekikaPC）
+GUIでのプロジェクト保存・再読込、音量・パン、クリップ編集、クリップ／トラック削除、Undo/Redoの一連の検証を依頼。新機能追加とGitHubへのcommit/pushは行わない指定。
+
+Codex（端末: TekikaPC／AI: Copilot SDK in VS Code）
+検証日時: 2026-10-23 00:47以降。
+- 開始ブランチはmain。開始時の未コミット変更（README、開発計画、会話記録、portableバイナリ）を保持。MainWindow.xaml、MainWindow.xaml.cs、ProjectStore、ProjectEditHistory、自己テストを確認した。
+- `bin/GuiVerification`を一時フォルダーへ複製し、元の検証データを変更しないようにした。
+- Release GUIの起動とUI Automationによるコントロール検出に成功。Inspector音量を100%から50%、パンを中央から右70%へ変更する表示、および右ゾーンOnを確認した。
+- 標準プロジェクト選択ダイアログは複数の残存ウィンドウが重なった状態になり、テスト用project.jsonの読込完了を確認できなかった。GUI保存、正常終了、再読込、右ゾーン開閉状態の保存後照合は未実施。
+- UI AutomationのRangeValue設定では通常のスライダー押下イベントが発生しないため、音量・パンのUndo/Redoを実GUI操作として確認できなかった。クリップ移動／長さ変更／削除、トラック削除、複数Undo/Redo、Undo/Redo後の保存・再読込も未検証。
+- 製品コードの不具合修正は行っていない。今回の制限はUI Automationと標準ファイルダイアログの操作上の問題であり、製品不具合とは断定していない。
+
+ユーザー
+既存JSONプロジェクトとの互換性を維持したまま、内部JSONの独自`.tubase`プロジェクトファイル形式を導入するよう依頼。保存・読込、バックアップ・復旧、GUIダイアログ、自己テストの対応を指定。commit/pushは行わない。
+
+Codex（端末: TekikaPC／AI: Copilot SDK in VS Code）
+検証日時: 2026-10-23 00:56以降。
+- 開始ブランチはmain。README、開発計画、会話記録、portableバイナリの既存未コミット変更を保持した。
+- `Audio/ProjectModel.cs`に`TubasePath`、任意ファイルパス保存、`.tubase`保存を追加。従来の`ProjectStore.Save(project, directory)`と`project.json`読込は維持した。
+- MainWindowに「別名保存」を追加し、`.tubase`を標準拡張子として保存できるようにした。「開く」は`.tubase`、`.json`、対応ファイル全般を選択できる。
+- `.tubase`の内部形式は既存`ProjectDocument`のインデント付きJSON。トップレベルは`SchemaVersion`、`Name`、`SampleRate`、`Tracks`で、音声素材は従来どおり同じプロジェクトフォルダーのAudioを参照する。
+- 自己テストへ`.tubase`の有効JSON解析、トラック数・クリップ位置の保存／再読込、既存JSON互換性の確認を追加した。
+- Releaseビルドは警告0・エラー0で成功。自己テストと`git diff --check`も成功。GUIの`.tubase`別名保存・再読込は、標準ファイルダイアログの操作制限により未検証。
+
+ユーザー
+実装済み`.tubase`形式について、既存JSONのGUI読込、別名保存、`.tubase`再読込、保存後のデータ維持、再生操作を実際のWindows GUIで検証するよう依頼。既存データの直接変更とcommit/pushは禁止。
+
+Codex（端末: TekikaPC／AI: Copilot SDK in VS Code）
+検証日時: 2026-10-23 00:58以降。
+- 開始ブランチはmain。Audio/ProjectModel.cs、Audio/TubaseSmokeTests.cs、MainWindow.xaml、MainWindow.xaml.cs、README、開発計画、会話記録、portableバイナリの未コミット変更を保持した。
+- `bin/GuiVerification`を一時フォルダーへ複製し、元のproject.jsonとAudio素材を変更しないようにした。
+- Release GUIで一時コピーの既存`project.json`を実際に開き、プロジェクト名GuiVerification、トラック1件、クリップ1件、Gain 100%、Pan中央を確認した。
+- GUIの「別名保存」で別の一時フォルダーへ`GuiVerification.tubase`を保存。保存完了表示、ファイル存在、JSON解析、トラック1件、クリップ1件、開始位置0.62秒、Gain 1、Pan 0を確認した。
+- GUIから保存した`.tubase`を開き直し、トラック1件、クリップ1件、Gain 100%、Pan中央を確認した。再読み込み後の保存完了表示も確認した。
+- 再読み込み後に再生操作を行い、再生アイコンが一時停止表示となり、再生位置が00:00.650へ進むことを確認した。出力機器からの実音聴取は未実施。
+- GUIで編集値を変更して再保存・再読込する一連の確認、クリップ位置変更、Gain/Pan変更、実音出力は未検証。製品コードの変更は行っていない。
