@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Text.Json;
 using Tubase.Audio;
 
 namespace Tubase;
@@ -18,10 +19,44 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, AudioAsset> _assets = new(StringComparer.OrdinalIgnoreCase);
     private readonly WaveOutPlayer _player = new();
     private readonly System.Windows.Threading.DispatcherTimer _uiTimer = new();
+    private readonly System.Windows.Threading.DispatcherTimer _autosaveTimer = new();
     private readonly List<(Canvas Canvas, Line Line)> _playheadLines = new();
     private double _playhead;
     private double _pixelsPerSecond = 80;
     private int _selectedTrack;
+    private readonly Stack<string> _undo = new();
+    private readonly Stack<string> _redo = new();
+    private bool _restoring;
+
+    private string CaptureState() => JsonSerializer.Serialize(_project);
+    private void RecordUndo()
+    {
+        if (_restoring) return;
+        _undo.Push(CaptureState());
+        if (_undo.Count > 100) { var keep = _undo.Reverse().Take(100).Reverse().ToArray(); _undo.Clear(); foreach (var item in keep) _undo.Push(item); }
+        _redo.Clear(); UpdateHistoryButtons();
+    }
+    private void UpdateHistoryButtons()
+    {
+        if (UndoButton is not null) UndoButton.IsEnabled = _undo.Count > 0;
+        if (RedoButton is not null) RedoButton.IsEnabled = _redo.Count > 0;
+    }
+    private void RestoreState(string state)
+    {
+        _restoring = true;
+        try { _project = JsonSerializer.Deserialize<ProjectDocument>(state) ?? new ProjectDocument(); _selectedTrack = Math.Clamp(_selectedTrack, 0, Math.Max(0, _project.Tracks.Count - 1)); RefreshTimeline(); SaveCurrentProject(); }
+        finally { _restoring = false; UpdateHistoryButtons(); }
+    }
+    private void Undo_Click(object sender, RoutedEventArgs e)
+    {
+        if (_undo.Count == 0) return;
+        _redo.Push(CaptureState()); RestoreState(_undo.Pop()); StatusText.Text = "Undo.";
+    }
+    private void Redo_Click(object sender, RoutedEventArgs e)
+    {
+        if (_redo.Count == 0) return;
+        _undo.Push(CaptureState()); RestoreState(_redo.Pop()); StatusText.Text = "Redo.";
+    }
 
     private sealed class ClipDrag
     {
@@ -38,6 +73,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        PreviewKeyDown += MainWindow_PreviewKeyDown;
         _player.PositionChanged += _ => Dispatcher.BeginInvoke(() => UpdatePlayhead());
         _uiTimer.Interval = TimeSpan.FromMilliseconds(33);
         _uiTimer.Tick += (_, _) =>
@@ -55,8 +91,31 @@ public partial class MainWindow : Window
             }
         };
         _uiTimer.Start();
+        _autosaveTimer.Interval = TimeSpan.FromMinutes(2);
+        _autosaveTimer.Tick += (_, _) => SaveRecoverySnapshot();
+        _autosaveTimer.Start();
         AddTrackInternal();
         RefreshTimeline();
+    }
+
+    private void SaveRecoverySnapshot()
+    {
+        if (_projectDirectory is null || !_project.Tracks.SelectMany(t => t.Clips).Any()) return;
+        try
+        {
+            var recovery = Path.Combine(_projectDirectory, "Autosaves", "recovery.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(recovery)!);
+            File.WriteAllText(recovery, CaptureState());
+        }
+        catch (Exception ex) { StatusText.Text = "Autosave failed: " + ex.Message; }
+    }
+
+    private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.S) { SaveProject_Click(this, new RoutedEventArgs()); e.Handled = true; }
+        else if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.Z) { Undo_Click(this, new RoutedEventArgs()); e.Handled = true; }
+        else if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.Y) { Redo_Click(this, new RoutedEventArgs()); e.Handled = true; }
+        else if (e.Key == Key.Space && !(Keyboard.FocusedElement is TextBox)) { if (_player.IsPlaying) Stop_Click(this, new RoutedEventArgs()); else Play_Click(this, new RoutedEventArgs()); e.Handled = true; }
     }
 
     private void NewProject_Click(object sender, RoutedEventArgs e)
@@ -79,6 +138,7 @@ public partial class MainWindow : Window
             if (answer != MessageBoxResult.Yes) return;
         }
         _player.Stop();
+        _undo.Clear(); _redo.Clear();
         _projectDirectory = directory;
         _project = new ProjectDocument { Name = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar)) };
         _assets.Clear();
@@ -106,8 +166,15 @@ public partial class MainWindow : Window
         try
         {
             _player.Stop();
-            var loaded = ProjectStore.Load(manifest);
             var directory = Path.GetDirectoryName(Path.GetFullPath(manifest))!;
+            var loaded = ProjectStore.Load(manifest);
+            var recovery = Path.Combine(directory, "Autosaves", "recovery.json");
+            if (File.Exists(recovery) && File.GetLastWriteTimeUtc(recovery) > File.GetLastWriteTimeUtc(manifest))
+            {
+                var answer = MessageBox.Show("A newer recovery snapshot is available. Restore it?", "Tubase recovery", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (answer == MessageBoxResult.Yes)
+                    loaded = JsonSerializer.Deserialize<ProjectDocument>(File.ReadAllText(recovery)) ?? loaded;
+            }
             var assets = new Dictionary<string, AudioAsset>(StringComparer.OrdinalIgnoreCase);
             foreach (var clip in loaded.Tracks.SelectMany(t => t.Clips))
             {
@@ -141,6 +208,8 @@ public partial class MainWindow : Window
         try
         {
             ProjectStore.Save(_project, _projectDirectory);
+            var recovery = Path.Combine(_projectDirectory, "Autosaves", "recovery.json");
+            if (File.Exists(recovery)) File.Delete(recovery);
             ProjectText.Text = _project.Name;
             StatusText.Text = "Project saved locally.";
         }
@@ -149,11 +218,22 @@ public partial class MainWindow : Window
 
     private void AddTrack_Click(object sender, RoutedEventArgs e)
     {
+        RecordUndo();
         StopForStructuralEdit();
         AddTrackInternal();
         _selectedTrack = _project.Tracks.Count - 1;
         RefreshTimeline();
         StatusText.Text = "Audio track added.";
+    }
+
+    private void DeleteTrack_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: int index } || index < 0 || index >= _project.Tracks.Count) return;
+        RecordUndo(); StopForStructuralEdit();
+        _project.Tracks.RemoveAt(index);
+        if (_project.Tracks.Count == 0) AddTrackInternal();
+        _selectedTrack = Math.Clamp(index, 0, _project.Tracks.Count - 1);
+        RefreshTimeline(); StatusText.Text = "Track removed. Undo is available.";
     }
 
     private void StopForStructuralEdit()
@@ -190,6 +270,7 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog() != true) return;
         try
         {
+            RecordUndo();
             StopForStructuralEdit();
             var result = WavImportService.Import(
                 _project, _assets, _projectDirectory, dialog.FileNames, _selectedTrack, _playhead,
@@ -319,10 +400,10 @@ public partial class MainWindow : Window
         _playheadLines.Clear();
         var end = Math.Max(12, Mixer.ProjectDuration(_project) + 4);
         var width = Math.Max(1500, end * _pixelsPerSecond);
-        var ruler = new Grid { Width = HeaderWidth + width, Height = 32, Background = new SolidColorBrush(Color.FromRgb(35, 39, 48)) };
+        var ruler = new Grid { Width = HeaderWidth + width, Height = 32, Background = new SolidColorBrush(Color.FromRgb(37, 39, 44)) };
         ruler.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(HeaderWidth) });
         ruler.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(width) });
-        var label = new TextBlock { Text = "TRACK / TIME", Margin = new Thickness(10, 7, 0, 0), Foreground = Brushes.LightGray, FontSize = 11 };
+        var label = new TextBlock { Text = "TRACK       EVENTS", Margin = new Thickness(12, 7, 0, 0), Foreground = new SolidColorBrush(Color.FromRgb(166, 171, 180)), FontSize = 10, FontWeight = FontWeights.SemiBold };
         ruler.Children.Add(label);
         var rulerCanvas = new Canvas { Width = width, Height = 32 };
         Grid.SetColumn(rulerCanvas, 1);
@@ -331,7 +412,7 @@ public partial class MainWindow : Window
         for (var s = 0; s <= end; s += tickSeconds)
         {
             var x = s * _pixelsPerSecond;
-            rulerCanvas.Children.Add(new Line { X1 = x, X2 = x, Y1 = 15, Y2 = 32, Stroke = new SolidColorBrush(Color.FromRgb(94, 101, 116)), StrokeThickness = 1 });
+            rulerCanvas.Children.Add(new Line { X1 = x, X2 = x, Y1 = 15, Y2 = 32, Stroke = new SolidColorBrush(Color.FromRgb(91, 96, 105)), StrokeThickness = 1 });
             var tickLabel = new TextBlock { Text = TimeSpan.FromSeconds(s).ToString(@"mm\:ss"), Foreground = Brushes.LightGray, FontSize = 10 };
             Canvas.SetLeft(tickLabel, x + 3);
             Canvas.SetTop(tickLabel, 0);
@@ -343,21 +424,21 @@ public partial class MainWindow : Window
         {
             var trackIndex = index;
             var track = _project.Tracks[index];
-            var row = new Grid { Width = HeaderWidth + width, Height = 116, Background = Brushes.Transparent };
+            var row = new Grid { Width = HeaderWidth + width, Height = 132, Background = Brushes.Transparent };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(HeaderWidth) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(width) });
             var header = BuildTrackHeader(track, trackIndex);
             row.Children.Add(header);
-            var canvas = new Canvas { Width = width, Height = 116, Background = new SolidColorBrush(Color.FromRgb(39, 43, 52)), ClipToBounds = true };
+            var canvas = new Canvas { Width = width, Height = 132, Background = new SolidColorBrush(Color.FromRgb(30, 32, 37)), ClipToBounds = true };
             Grid.SetColumn(canvas, 1);
             row.Children.Add(canvas);
             for (var s = 0; s <= end; s += tickSeconds)
             {
                 var x = s * _pixelsPerSecond;
-                canvas.Children.Add(new Line { X1 = x, X2 = x, Y1 = 0, Y2 = 116, Stroke = new SolidColorBrush(Color.FromRgb(53, 58, 69)), StrokeThickness = 1 });
+                canvas.Children.Add(new Line { X1 = x, X2 = x, Y1 = 0, Y2 = 132, Stroke = new SolidColorBrush(Color.FromRgb(47, 50, 57)), StrokeThickness = 1 });
             }
             foreach (var clip in track.Clips) canvas.Children.Add(BuildClip(clip, canvas));
-            var playhead = new Line { Y1 = 0, Y2 = 116, Stroke = Brushes.OrangeRed, StrokeThickness = 2, IsHitTestVisible = false };
+            var playhead = new Line { Y1 = 0, Y2 = 132, Stroke = new SolidColorBrush(Color.FromRgb(232, 91, 83)), StrokeThickness = 2, IsHitTestVisible = false };
             canvas.Children.Add(playhead);
             _playheadLines.Add((canvas, playhead));
             canvas.MouseLeftButtonDown += (_, args) =>
@@ -365,7 +446,8 @@ public partial class MainWindow : Window
                 if (args.OriginalSource == canvas)
                 {
                     _selectedTrack = trackIndex;
-                    _playhead = Math.Max(0, args.GetPosition(canvas).X / _pixelsPerSecond);
+                    var seconds = Math.Max(0, args.GetPosition(canvas).X / _pixelsPerSecond);
+                    _playhead = SnapCheck.IsChecked == true ? Math.Round(seconds * 4) / 4 : seconds;
                     UpdatePlayhead();
                 }
             };
@@ -378,32 +460,37 @@ public partial class MainWindow : Window
 
     private Border BuildTrackHeader(AudioTrack track, int trackIndex)
     {
-        var panel = new StackPanel { Margin = new Thickness(8, 5, 8, 4) };
+        var panel = new StackPanel { Margin = new Thickness(10, 7, 10, 6) };
         var title = new DockPanel();
         var name = new TextBox
         {
-            Text = track.Name, Width = 135, Background = new SolidColorBrush(Color.FromRgb(45, 50, 61)),
+            Text = track.Name, Width = 140, Background = new SolidColorBrush(Color.FromRgb(38, 40, 46)),
             Foreground = Brushes.White, BorderThickness = new Thickness(0), Padding = new Thickness(4)
         };
-        name.LostFocus += (_, _) => track.Name = name.Text;
+        name.LostFocus += (_, _) => { if (track.Name != name.Text) { RecordUndo(); track.Name = name.Text; } };
         title.Children.Add(name);
         var mute = new CheckBox { Content = "M", IsChecked = track.Muted, Margin = new Thickness(8, 3, 0, 0), Foreground = Brushes.White };
-        mute.Checked += (_, _) => track.Muted = true;
-        mute.Unchecked += (_, _) => track.Muted = false;
+        mute.Checked += (_, _) => { if (!track.Muted) RecordUndo(); track.Muted = true; };
+        mute.Unchecked += (_, _) => { if (track.Muted) RecordUndo(); track.Muted = false; };
         title.Children.Add(mute);
         panel.Children.Add(title);
+        var remove = new Button { Content = "×", Tag = trackIndex, Width = 24, Height = 22, Padding = new Thickness(0), Margin = new Thickness(4, 0, 0, 0), ToolTip = "Remove track" };
+        remove.Click += DeleteTrack_Click;
+        title.Children.Add(remove);
         panel.Children.Add(new TextBlock { Text = "Volume", FontSize = 10, Foreground = Brushes.LightGray });
         var gain = new Slider { Minimum = 0, Maximum = 2, Value = track.Gain, Width = 205, Height = 20, Tag = trackIndex };
+        gain.PreviewMouseLeftButtonDown += (_, _) => RecordUndo();
         gain.ValueChanged += (_, _) => track.Gain = (float)gain.Value;
         panel.Children.Add(gain);
         panel.Children.Add(new TextBlock { Text = "Pan", FontSize = 10, Foreground = Brushes.LightGray });
         var pan = new Slider { Minimum = -1, Maximum = 1, Value = track.Pan, Width = 205, Height = 20 };
+        pan.PreviewMouseLeftButtonDown += (_, _) => RecordUndo();
         pan.ValueChanged += (_, _) => track.Pan = (float)pan.Value;
         panel.Children.Add(pan);
         return new Border
         {
-            Background = new SolidColorBrush(trackIndex == _selectedTrack ? Color.FromRgb(48, 58, 69) : Color.FromRgb(43, 47, 57)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(58, 64, 76)), BorderThickness = new Thickness(0, 0, 1, 1),
+            Background = new SolidColorBrush(trackIndex == _selectedTrack ? Color.FromRgb(47, 51, 59) : Color.FromRgb(39, 41, 47)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(54, 57, 64)), BorderThickness = new Thickness(0, 0, 1, 1),
             Child = panel
         };
     }
@@ -414,9 +501,9 @@ public partial class MainWindow : Window
         var width = Math.Max(35, clip.DurationSeconds * _pixelsPerSecond);
         var border = new Border
         {
-            Width = width, Height = 76, CornerRadius = new CornerRadius(4),
-            Background = new SolidColorBrush(assetExists ? Color.FromRgb(26, 112, 105) : Color.FromRgb(130, 55, 58)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(102, 222, 192)), BorderThickness = new Thickness(1),
+            Width = width, Height = 94, CornerRadius = new CornerRadius(2),
+            Background = new SolidColorBrush(assetExists ? Color.FromRgb(43, 99, 88) : Color.FromRgb(130, 55, 58)),
+            BorderBrush = new SolidColorBrush(assetExists ? Color.FromRgb(91, 171, 144) : Color.FromRgb(210, 105, 108)), BorderThickness = new Thickness(1),
             Cursor = Cursors.SizeAll, Tag = clip, ToolTip = assetExists ? clip.Name : "Missing media: " + clip.File
         };
         Canvas.SetLeft(border, clip.StartSeconds * _pixelsPerSecond);
@@ -433,6 +520,7 @@ public partial class MainWindow : Window
         Grid.SetColumn(grip, 1);
         content.Children.Add(grip);
         border.Child = content;
+        if (assetExists) DrawWaveform(clip, border);
         border.MouseLeftButtonDown += (_, e) =>
         {
             _selectedTrack = _project.Tracks.FindIndex(t => t.Clips.Contains(clip));
@@ -444,6 +532,7 @@ public partial class MainWindow : Window
                 OriginalStart = clip.StartSeconds, OriginalDuration = clip.DurationSeconds,
                 Resizing = point.X - Canvas.GetLeft(border) >= border.ActualWidth - 15
             };
+            RecordUndo();
             border.CaptureMouse();
             e.Handled = true;
         };
@@ -460,7 +549,8 @@ public partial class MainWindow : Window
             }
             else
             {
-                clip.StartSeconds = Math.Max(0, _clipDrag.OriginalStart + delta);
+                var next = Math.Max(0, _clipDrag.OriginalStart + delta);
+                clip.StartSeconds = SnapCheck.IsChecked == true ? Math.Max(0, Math.Round(next * 4) / 4) : next;
                 Canvas.SetLeft(border, clip.StartSeconds * _pixelsPerSecond);
             }
         };
@@ -472,6 +562,38 @@ public partial class MainWindow : Window
             StatusText.Text = "Clip position or trim updated. Save the project to keep the change.";
         };
         return border;
+    }
+
+    private void DrawWaveform(AudioClip clip, Border border)
+    {
+        if (!_assets.TryGetValue(clip.File, out var asset)) return;
+        var canvas = new Canvas { IsHitTestVisible = false, Margin = new Thickness(6, 23, 5, 5), ClipToBounds = true };
+        var waveWidth = Math.Max(1, border.Width - 14);
+        var waveHeight = 60d;
+        canvas.Width = waveWidth; canvas.Height = waveHeight;
+        var samplesPerPixel = Math.Max(1, (int)Math.Ceiling(asset.SampleRate / _pixelsPerSecond));
+        var start = Math.Clamp((int)(clip.SourceOffsetSeconds * asset.SampleRate), 0, asset.Frames);
+        var available = Math.Clamp((int)(clip.DurationSeconds * asset.SampleRate), 0, asset.Frames - start);
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            var center = waveHeight / 2;
+            for (var x = 0; x < waveWidth; x++)
+            {
+                var from = start + (int)((long)x * available / (int)waveWidth);
+                var to = Math.Min(start + available, from + samplesPerPixel);
+                var peak = 0f;
+                for (var i = from; i < to; i++) peak = Math.Max(peak, Math.Max(Math.Abs(asset.Left[i]), Math.Abs(asset.Right[i])));
+                var amp = Math.Max(1.2, peak * (center - 2));
+                ctx.BeginFigure(new Point(x, center - amp), false, false);
+                ctx.LineTo(new Point(x, center + amp), true, false);
+            }
+        }
+        geometry.Freeze();
+        canvas.Children.Add(new System.Windows.Shapes.Path { Data = geometry, Stroke = new SolidColorBrush(Color.FromRgb(157, 220, 189)), StrokeThickness = 1, Opacity = 0.9 });
+        border.Child = canvas;
+        var label = new TextBlock { Text = clip.Name, Margin = new Thickness(7, 4, 18, 0), Foreground = Brushes.White, FontSize = 10, TextTrimming = TextTrimming.CharacterEllipsis, IsHitTestVisible = false };
+        border.Child = new Grid { Children = { canvas, label } };
     }
 
     private void UpdatePlayhead()
@@ -494,6 +616,7 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _uiTimer.Stop();
+        _autosaveTimer.Stop();
         _player.Dispose();
         base.OnClosed(e);
     }
