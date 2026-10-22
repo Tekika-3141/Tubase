@@ -1,0 +1,33 @@
+<Window x:Class="Tubase.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Tubase" Width="1240" Height="780" MinWidth="900" MinHeight="560"
+        Background="#20232B" Foreground="#F3F4F6">
+  <DockPanel>
+    <Border DockPanel.Dock="Top" Background="#292D37" Padding="8">
+      <WrapPanel VerticalAlignment="Center">
+        <Button Content="New Project" Click="NewProject_Click"/>
+        <Button Content="Open" Click="OpenProject_Click"/>
+        <Button Content="Save" Click="SaveProject_Click"/>
+        <Separator Width="1" Margin="8,2" Background="#596170"/>
+        <Button Content="Add Track" Click="AddTrack_Click"/>
+        <Button Content="Import WAV" Click="ImportWav_Click"/>
+        <Button Content="Export WAV" Click="ExportWav_Click"/>
+        <Separator Width="1" Margin="8,2" Background="#596170"/>
+        <Button x:Name="PlayButton" Content="▶ Play" Click="Play_Click"/>
+        <Button Content="■ Stop" Click="Stop_Click"/>
+        <TextBlock x:Name="PositionText" Text="00:00.000" Margin="12,8" FontFamily="Consolas" VerticalAlignment="Center"/>
+        <TextBlock Text="Zoom" Margin="8,8,2,8" VerticalAlignment="Center"/>
+        <Slider x:Name="ZoomSlider" Width="130" Minimum="35" Maximum="180" Value="80" ValueChanged="ZoomSlider_Changed" VerticalAlignment="Center"/>
+      </WrapPanel>
+    </Border>
+    <StatusBar DockPanel.Dock="Bottom" Background="#292D37" Foreground="#B8C0CC">
+      <StatusBarItem><TextBlock x:Name="StatusText" Text="Create or open a project to begin."/></StatusBarItem>
+      <StatusBarItem HorizontalAlignment="Right"><TextBlock x:Name="ProjectText" Text="No project"/></StatusBarItem>
+    </StatusBar>
+    <ScrollViewer x:Name="TimelineScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                  Background="#20232B" CanContentScroll="False">
+      <StackPanel x:Name="TracksPanel"/>
+    </ScrollViewer>
+  </DockPanel>
+</Window>
